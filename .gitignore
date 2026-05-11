@@ -1,0 +1,21 @@
+# Environments
+venv/
+.env
+backup_old/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+.gemini/
+.agents/
+sample.log
+app.log
