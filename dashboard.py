@@ -3,6 +3,10 @@ from flask import Flask, render_template_string, jsonify, request, session, redi
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from functools import wraps
+import threading
+import time
+import json
+from groq import Groq
 
 load_dotenv()
 
@@ -10,6 +14,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24) 
 
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # --- SECURITY MODULE ---
 WEBHOOK_API_KEY = "sentinel-secure-key-123"
@@ -232,6 +237,66 @@ DASHBOARD_HTML = '''
 </html>
 '''
 
+# --- AUTOMATED AI BACKGROUND WORKER ---
+def auto_analyze_anomalies():
+    """Runs in the background every 15 seconds to analyze new anomalies with LLM"""
+    print("🧠 [AI Worker] Checking for new anomalies...")
+    
+    try:
+        # 1. Find logs that are anomalies
+        logs_res = supabase.table("logs") \
+            .select("id, log_level, source, message") \
+            .eq("is_anomaly", True) \
+            .order("timestamp", desc=True) \
+            .limit(10) \
+            .execute()
+        
+        # 2. Get IDs that are already analyzed
+        analysis_res = supabase.table("analysis").select("log_id").execute()
+        analyzed_ids = {item['log_id'] for item in analysis_res.data}
+        
+        new_anomalies = [log for log in logs_res.data if log['id'] not in analyzed_ids]
+        
+        if new_anomalies:
+            for log in new_anomalies:
+                print(f"🤖 [AI Worker] Analyzing Log ID {log['id']} from {log['source']}...")
+                
+                try:
+                    response = groq_client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content": f"Analyze this log. Respond ONLY in JSON with keys: root_cause, severity (Critical/High/Medium/Low), recommended_actions (list). Log: {log['message']}"}],
+                        temperature=0.1,
+                        max_tokens=200,
+                        response_format={"type": "json_object"}
+                    )
+                    result = json.loads(response.choices[0].message.content)
+                except Exception as e:
+                    print(f"   ⚠️ [AI Worker] LLM Error: {e}")
+                    result = {"root_cause": "LLM Analysis Failed", "severity": "Low", "recommended_actions": ["Manual review required"]}
+                
+                # 3. Save Analysis
+                supabase.table("analysis").insert({
+                    "log_id": log['id'],
+                    "root_cause": result.get("root_cause", "Unknown"),
+                    "severity": result.get("severity", "Medium"),
+                    "recommended_actions": result.get("recommended_actions", []),
+                    "confidence_score": 0.9
+                }).execute()
+                
+                # 4. Create Alert if needed
+                if result.get("severity") in ["Critical", "High"]:
+                    supabase.table("alerts").insert({
+                        "log_id": log['id'],
+                        "severity": result.get("severity"),
+                        "message": f"[{log['source']}] {result.get('root_cause')}",
+                        "is_resolved": False
+                    }).execute()
+                    print(f"   🚨 [AI Worker] ALERT CREATED: {result.get('severity')}")
+    except Exception as e:
+        print(f"❌ [AI Worker] Global Error: {e}")
+
+    threading.Timer(15.0, auto_analyze_anomalies).start()
+
 # --- ROUTES ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -258,18 +323,61 @@ def index():
 @require_api_key
 def ingest_log():
     data = request.json
-    logs = data if isinstance(data, list) else [data]
-    for log in logs:
+    logs_to_insert = []
+
+    # CHECK 1: Is this from our Fake Flipkart? (It sends a simple dict)
+    if 'level' in data and 'source' in data:
+        logs_to_insert.append(data)
+    
+    # CHECK 2: Is this from GitHub? (It sends a complex dict with 'sender' and 'ref')
+    elif 'sender' in data and ('ref' in data or 'pull_request' in data):
+        action = request.headers.get('X-GitHub-Event', 'unknown')
+        user = data.get('sender', {}).get('login', 'unknown_user')
+        repo = data.get('repository', {}).get('name', 'unknown_repo')
+        
+        # Translate GitHub event into Sentinel log
+        level = "INFO"
+        message = ""
+        
+        if action == "push":
+            branch = data.get('ref', '').replace('refs/heads/', '')
+            commits = data.get('commits', [])
+            message = f"[{user}] pushed {len(commits)} commit(s) to '{branch}' in {repo}"
+        elif action == "delete":
+            branch = data.get('ref', '').replace('refs/heads/', '')
+            message = f"[{user}] DELETED branch '{branch}' in {repo}"
+            level = "WARNING"
+        elif action == "pull_request":
+            pr_action = data.get('action', '')
+            branch = data.get('pull_request', {}).get('base', {}).get('ref', 'unknown')
+            message = f"[{user}] {pr_action} a Pull Request in {repo}"
+            if pr_action == "closed" and data.get('pull_request', {}).get('merged'):
+                message = f"[{user}] MERGED a Pull Request into '{branch}' in {repo}"
+        
+        if message:
+            logs_to_insert.append({
+                "level": level,
+                "source": "github-webhook",
+                "message": message,
+                "is_anomaly": level in ['ERROR', 'CRITICAL']
+            })
+
+    # SAVE TO DATABASE
+    for log in logs_to_insert:
         level = log.get('level', 'INFO').upper()
-        is_anomaly = level in ['ERROR', 'CRITICAL']
-        supabase.table("logs").insert({
-            "log_level": level,
-            "message": log.get('message', ''),
-            "source": log.get('source', 'unknown'),
-            "is_anomaly": is_anomaly,
-            "structured_data": log
-        }).execute()
-    return jsonify({"status": "ingested"}), 201
+        is_anomaly = log.get('is_anomaly', level in ['ERROR', 'CRITICAL'])
+        try:
+            supabase.table("logs").insert({
+                "log_level": level,
+                "message": log.get('message', ''),
+                "source": log.get('source', 'unknown'),
+                "is_anomaly": is_anomaly,
+                "structured_data": log
+            }).execute()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"status": "ingested", "count": len(logs_to_insert)}), 201
 
 @app.route('/api/logs')
 @login_required
@@ -317,7 +425,11 @@ def chart_data():
     return jsonify({ "levels": level_counts, "timeline": dict(sorted(anomaly_timeline.items())) })
 
 if __name__ == '__main__':
+    # Start the AI background thread
+    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
+    
     print("\n🛡️  SENTINEL AI SECURE COMMAND CENTER")
+    print("🧠 Auto-Analyzer is running in the background...")
     print("🔒 Login -> Username: admin | Password: password")
     print("🚀 Open http://localhost:5000\n")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, use_reloader=False)
