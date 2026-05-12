@@ -1,103 +1,81 @@
-# 🛡️ Sentinel AI: Real-Time Log Intelligence
+# 🛡️ Sentinel AI: Autonomous Log Intelligence Platform
 
-Sentinel AI is a modern, AI-powered log analysis engine that transforms raw system logs into actionable security intelligence. It features real-time log tailing, smart LLM caching, and a premium dark-mode command center.
+Sentinel AI is a production-grade, autonomous SIEM (Security Information and Event Management) system designed to ingest, analyze, and mitigate security threats in real-time. It features a premium dark-mode dashboard, an autonomous AI background worker powered by Llama-3, and multi-source ingestion capabilities.
 
-![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)
-![Flask](https://img.shields.io/badge/Flask-3.0-black?logo=flask)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green?logo=supabase)
-![Groq](https://img.shields.io/badge/Groq-LLaMA3-orange?logo=groq)
+![Sentinel Dashboard Mockup](https://raw.githubusercontent.com/A030708/anomly-detection/main/dashboard_preview.png) *(Note: Add your own screenshot here!)*
 
-## ✨ Key Features
+---
 
-- **Real-Time Ingestion:** Uses OS-level `watchdog` to tail log files instantly (no polling).
-- **Universal Parser:** Auto-detects and parses JSON, Syslog, and standard log formats.
-- **Cost-Effective AI:** Integrates Groq LLM with MD5-based caching to avoid analyzing duplicate errors.
-- **Anomaly Detection:** Flags errors/criticals automatically before sending to the AI.
-- **Premium Dashboard:** Datadog-inspired UI with live charts, terminal streams, and threat alerts.
-- **Cloud Backend:** Fully managed PostgreSQL database via Supabase with optimized indexes.
+## 🚀 Core Features
 
-## 🏗️ System Architecture
+### 1. 🧠 Autonomous AI Intelligence
+*   **Background Worker**: A dedicated thread in the dashboard automatically monitors incoming anomalies.
+*   **Llama-3 Analysis**: Integrated with **Groq API** to perform deep root-cause analysis on logs in real-time.
+*   **Self-Healing Intelligence**: The AI generates recommended actions and severity scores, populating the Intelligence Feed automatically.
 
-```text
-[Log Files] ---> (Watchdog) ---> [Log Parser] ---> [Supabase DB]
-                                                     |
-                                                     v
-                                               [Anomaly Filter]
-                                                     |
-                                                     v
-                                          [Smart LLM Analyzer (Groq)]
-                                                     | (With Caching)
-                                                     v
-                                                [Alerts Table]
-                                                     |
-                                                     v
-                                          [Flask Dashboard (UI)]
-```
+### 2. 🛒 Microservices & Honeypots
+*   **Mini-Flipkart Demo**: Includes a secondary application that simulates a real e-commerce store.
+*   **Security Traps**: Wired with "honeypot" logic to detect inventory manipulation (negative quantities) and payment fraud (brute-force card attempts).
 
-## 🚀 Quick Start
+### 3. 🌍 Multi-Source Webhook Ingestion
+*   **Universal API**: A hardened `/api/ingest` endpoint protected by X-API-Key authentication.
+*   **GitHub Integration**: Natively supports GitHub Webhooks to monitor real-time pushes, PRs, and branch deletions directly alongside application logs.
+
+### 4. 🔒 Enterprise-Grade Security
+*   **Authentication**: Full session-based login system for the Command Center.
+*   **XSS Protection**: Sanitized DOM manipulation to prevent malicious script injection via log payloads.
+*   **Cloud Ready**: Fully container-ready and optimized for deployment on platforms like Render or Heroku.
+
+---
+
+## 🛠️ Technology Stack
+
+*   **Backend**: Python, Flask, Gunicorn
+*   **Database**: Supabase (PostgreSQL)
+*   **AI Engine**: Groq (Llama-3.3-70b-versatile)
+*   **Frontend**: Vanilla JS, Chart.js, FontAwesome, Tailwind-inspired CSS
+*   **Infrastructure**: Ngrok (for local webhooks), Render (Cloud Hosting)
+
+---
+
+## 🏁 Getting Started
 
 ### 1. Prerequisites
-- Python 3.9+
-- A [Groq API Key](https://console.groq.com/keys)
-- A [Supabase Project](https://supabase.com)
+*   Python 3.10+
+*   Supabase Account (Free tier works perfectly)
+*   Groq API Key (Free, lighting-fast AI)
 
 ### 2. Installation
 ```bash
-git clone https://github.com/yourusername/sentinel-ai.git
-cd sentinel-ai
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+git clone https://github.com/A030708/anomly-detection.git
+cd anomly-detection
 pip install -r requirements.txt
 ```
 
 ### 3. Configuration
-Rename `.env.example` to `.env` and add your keys:
+Create a `.env` file in the root directory:
 ```env
-GROQ_API_KEY=gsk_your_key_here
-SUPABASE_URL=https://yourproject.supabase.co
-SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
+GROQ_API_KEY=your_groq_api_key
+DASHBOARD_API_KEY=sentinel-secure-key-123
 ```
 
-### 4. Database Setup
-Run the following SQL in your Supabase SQL Editor to create tables and performance indexes:
-```sql
--- (Paste the SQL schema provided in schema.sql)
-```
+### 4. Run the Platform
+1. **Start the Dashboard**: `python dashboard.py`
+2. **Start the Store**: `python fake_flipkart.py`
+3. **Login**: `http://localhost:5000` (User: `admin`, Pass: `password`)
 
-### 5. Run the System
-Open **3 separate terminals**:
+---
 
-```bash
-# Terminal 1: Start watching logs
-python log_collector.py
+## 🛡️ Security Demo Scenarios
+*   **Trigger Anomaly**: Try to add `-5` items to your cart in the Flipkart app.
+*   **Trigger Fraud**: Fail 3 credit card payments in a row.
+*   **Check Dashboard**: Watch the AI thread identify the hack and suggest a fix within 15 seconds.
 
-# Terminal 2: Start the AI Analyzer
-python llm_analyzer.py
+---
 
-# Terminal 3: Start the Web Dashboard
-python dashboard.py
-```
-Open `http://localhost:5000` to view the Command Center.
+## 📄 License
+Distributed under the MIT License. See `LICENSE` for more information.
 
-To test, echo logs into your watched file:
-```bash
-echo '{"level": "ERROR", "source": "auth", "message": "Login failed"}' >> sample.log
-```
-
-## 🛠️ Tech Stack
-
-| Component | Technology |
-| :--- | :--- |
-| Backend Framework | Flask |
-| Real-time File Watching | Watchdog |
-| Database | Supabase (PostgreSQL) |
-| AI/LLM Engine | Groq (Llama 3.3 70B) |
-| Frontend Charts | Chart.js |
-| Styling | Custom CSS (Glassmorphism) |
-
-## 📈 Future Roadmap
-- [ ] Add user authentication (JWT)
-- [ ] Docker containerization
-- [ ] WebSocket integration for zero-latency UI updates
-- [ ] Scikit-learn ML model for statistical anomaly detection
-- [ ] Slack/PagerDuty webhook integrations
+**Author**: [A030708](https://github.com/A030708)
