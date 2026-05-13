@@ -419,6 +419,17 @@ def ingest_log():
             branch = data.get('ref', '').replace('refs/heads/', '')
             commits = data.get('commits', [])
             message = f"[{user}] pushed {len(commits)} commit(s) to '{branch}' in {repo}"
+            
+            # Scan commit messages for dangerous actions
+            for commit in commits:
+                commit_msg = commit.get('message', '').lower()
+                if any(word in commit_msg for word in ['password', 'secret', 'token', 'api_key', 'credentials']):
+                    level = "CRITICAL"
+                    message += f" | 🚨 POSSIBLE SECRET LEAK in commit: {commit_msg}"
+                elif any(word in commit_msg for word in ['hotfix', 'urgent', 'force', 'hack']):
+                    if level != "CRITICAL": level = "WARNING"
+                    message += f" | ⚠️ Risky commit: {commit_msg}"
+                    
         elif action == "delete":
             branch = data.get('ref', '').replace('refs/heads/', '')
             message = f"[{user}] DELETED branch '{branch}' in {repo}"
