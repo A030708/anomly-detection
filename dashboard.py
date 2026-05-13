@@ -1,5 +1,5 @@
-import os
-from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
+import os, csv, io, smtplib
+from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from functools import wraps
@@ -7,6 +7,8 @@ import threading
 import time
 import json
 from groq import Groq
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 
@@ -32,10 +34,27 @@ def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         provided_key = request.headers.get('X-API-Key')
-        if provided_key != WEBHOOK_API_KEY:
+        is_github = request.headers.get('User-Agent', '').startswith('GitHub-Hookshot')
+        if not is_github and provided_key != WEBHOOK_API_KEY:
             return jsonify({"error": "Unauthorized webhook"}), 401
         return f(*args, **kwargs)
     return decorated_function
+
+def send_alert_email(subject, html_body):
+    sender = os.getenv("EMAIL_ADDRESS")
+    password = os.getenv("EMAIL_PASSWORD")
+    to_email = os.getenv("ALERT_RECIPIENT", sender)
+    if not sender or not password or not to_email: return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"], msg["From"], msg["To"] = subject, sender, to_email
+        msg.attach(MIMEText(html_body, "html"))
+        s = smtplib.SMTP("smtp.gmail.com", 587); s.starttls()
+        s.login(sender, password)
+        s.sendmail(sender, to_email, msg.as_string()); s.quit()
+        print(f"   📧 [Email] Alert sent to {to_email}")
+    except Exception as e:
+        print(f"   ⚠️ [Email] Error: {e}")
 
 # --- LOGIN PAGE HTML ---
 LOGIN_HTML = '''
@@ -115,8 +134,16 @@ DASHBOARD_HTML = '''
         .ai-severity { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
         .sev-critical { background: rgba(239,68,68,0.2); color: #fca5a5; }
         .pagination { display: flex; justify-content: center; gap: 0.5rem; padding: 1rem; border-top: 1px solid var(--border); }
-        .btn { padding: 0.5rem 1rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); cursor: pointer; text-decoration: none; }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main); cursor: pointer; text-decoration: none; font-size: 0.85rem; }
         .btn:hover { background: #1e293b; }
+        .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+        .btn-green { border-color: var(--accent-green); color: var(--accent-green); }
+        .btn-green:hover { background: rgba(16,185,129,0.15); }
+        .btn-cyan { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+        .search-bar { display: flex; gap: 0.5rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border); }
+        .search-bar input { flex: 1; padding: 0.5rem 0.75rem; background: #030712; border: 1px solid var(--border); color: white; border-radius: 0.375rem; font-size: 0.8rem; font-family: 'Inter', sans-serif; }
+        .search-bar input:focus { outline: none; border-color: var(--accent-cyan); }
+        .search-bar select { padding: 0.5rem; background: #030712; border: 1px solid var(--border); color: white; border-radius: 0.375rem; font-size: 0.8rem; }
     </style>
 </head>
 <body>
@@ -126,7 +153,8 @@ DASHBOARD_HTML = '''
             <div class="pulse-dot"></div>
             <span>System Online</span>
             <span style="margin-left: 1rem; color: var(--text-main);" id="live-clock">--:--:--</span>
-            <a href="/logout" class="btn" style="margin-left: 1rem; padding: 0.25rem 0.75rem; font-size: 0.8rem;">Logout</a>
+            <a href="/api/export/csv" class="btn btn-sm btn-cyan" style="margin-left: 0.75rem;"><i class="fa-solid fa-download" style="margin-right:4px"></i>CSV</a>
+            <a href="/logout" class="btn btn-sm" style="margin-left: 0.5rem;">Logout</a>
         </div>
     </div>
     <div class="dashboard-container">
@@ -144,6 +172,19 @@ DASHBOARD_HTML = '''
                 </div>
                 <div class="card" style="flex: 1;">
                     <div class="card-header"><span><i class="fa-solid fa-terminal" style="color:var(--accent-green); margin-right:8px;"></i>Live Log Stream</span><span id="page-info" style="font-size:0.8rem; color:var(--text-muted);">Page 1</span></div>
+                    <div class="search-bar">
+                        <input type="text" id="search-input" placeholder="Search logs..." onkeyup="if(event.key==='Enter')searchLogs()">
+                        <select id="level-filter" onchange="searchLogs()">
+                            <option value="">All Levels</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="CRITICAL">CRITICAL</option>
+                            <option value="DEBUG">DEBUG</option>
+                        </select>
+                        <button class="btn btn-sm" onclick="searchLogs()"><i class="fa-solid fa-search"></i></button>
+                        <button class="btn btn-sm" onclick="clearSearch()" title="Clear"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                     <div id="log-stream" class="terminal"></div>
                     <div class="pagination">
                         <button class="btn" onclick="changePage(-1)">Prev</button>
@@ -214,10 +255,10 @@ DASHBOARD_HTML = '''
         async function fetchAlerts() {
             const data = await secureFetch('/api/alerts');
             const container = document.getElementById('alerts-panel'); container.innerHTML = '';
-            if(!data.length) { container.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:2rem 0;">No active threats 🛡️</p>'; return; }
+            if(!data.length) { container.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:2rem 0;">No active threats &#x1f6e1;&#xfe0f;</p>'; return; }
             data.forEach(alert => {
                 const div = document.createElement('div'); div.className = `alert-item alert-${alert.severity.toLowerCase()}`;
-                div.innerHTML = `<div style="font-weight:700; font-size:0.8rem; margin-bottom:4px; color: ${alert.severity==='Critical'?'#f87171':'#fdba74'}">${alert.severity}</div><p style="font-size:0.85rem; color:#cbd5e1;">${alert.message}</p>`;
+                div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:700; font-size:0.8rem; margin-bottom:4px; color: ${alert.severity==='Critical'?'#f87171':'#fdba74'}">${alert.severity}</div><p style="font-size:0.85rem; color:#cbd5e1;">${alert.message}</p></div><button class="btn btn-sm btn-green" onclick="resolveAlert(${alert.id})">&#x2713; Resolve</button></div>`;
                 container.appendChild(div);
             });
         }
@@ -228,6 +269,36 @@ DASHBOARD_HTML = '''
             document.getElementById('stat-anomalies').innerText = data.anomalies.toLocaleString();
             document.getElementById('stat-analyzed').innerText = data.analyzed.toLocaleString();
             document.getElementById('stat-alerts').innerText = data.alerts.toLocaleString();
+        }
+
+        async function resolveAlert(id) {
+            await fetch(`/api/alerts/${id}/resolve`, {method:'POST'});
+            fetchAlerts(); fetchStats();
+        }
+
+        async function searchLogs() {
+            const q = document.getElementById('search-input').value;
+            const level = document.getElementById('level-filter').value;
+            let url = '/api/logs/search?';
+            if(q) url += `q=${encodeURIComponent(q)}&`;
+            if(level) url += `level=${level}`;
+            const data = await secureFetch(url);
+            const container = document.getElementById('log-stream'); container.innerHTML = '';
+            if(!data.length) { container.innerHTML = '<p style="text-align:center; color:#475569; padding:2rem;">No results.</p>'; return; }
+            data.forEach(log => {
+                const colors = { ERROR: '#f87171', WARNING: '#fbbf24', INFO: '#60a5fa', DEBUG: '#94a3b8', CRITICAL: '#ff4d4f' };
+                const div = document.createElement('div'); div.className = 'log-line';
+                div.innerHTML = `<span class="log-ts">${new Date(log.timestamp).toLocaleTimeString()}</span><span class="log-level" style="color: ${colors[log.log_level]}">[${log.log_level}]</span><span style="color:#94a3b8; min-width:100px;">[${log.source}]</span>${log.is_anomaly ? '<span class="anomaly-badge">ANOMALY</span>' : '<span style="width:60px"></span>'}<span class="log-msg"></span>`;
+                div.querySelector('.log-msg').textContent = log.message;
+                container.appendChild(div);
+            });
+            document.getElementById('page-info').innerText = 'Search Results';
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('level-filter').value = '';
+            currentPage = 1; fetchLogs();
         }
 
         function changePage(dir) { const p = currentPage + dir; if(p > 0) { currentPage = p; fetchLogs(); } }
@@ -292,6 +363,11 @@ def auto_analyze_anomalies():
                         "is_resolved": False
                     }).execute()
                     print(f"   🚨 [AI Worker] ALERT CREATED: {result.get('severity')}")
+                    # Send email alert
+                    send_alert_email(
+                        f"🚨 Sentinel AI Alert: {result.get('severity')}",
+                        f"<h2>{result.get('severity')} Threat Detected</h2><p><b>Source:</b> {log['source']}</p><p><b>Root Cause:</b> {result.get('root_cause')}</p><p><b>Actions:</b></p><ul>{''.join(f'<li>{a}</li>' for a in result.get('recommended_actions',[]))}</ul>"
+                    )
     except Exception as e:
         print(f"❌ [AI Worker] Global Error: {e}")
 
@@ -399,6 +475,32 @@ def get_analysis():
 def get_alerts():
     res = supabase.table("alerts").select("*").eq("is_resolved", False).order("created_at", desc=True).limit(10).execute()
     return jsonify(res.data)
+
+@app.route('/api/alerts/<int:alert_id>/resolve', methods=['POST'])
+@login_required
+def resolve_alert(alert_id):
+    supabase.table("alerts").update({"is_resolved": True}).eq("id", alert_id).execute()
+    return jsonify({"status": "resolved"}), 200
+
+@app.route('/api/logs/search')
+@login_required
+def search_logs():
+    q = request.args.get('q', '')
+    level = request.args.get('level', '')
+    query = supabase.table("logs").select("*").order("timestamp", desc=True).limit(50)
+    if level: query = query.eq("log_level", level)
+    if q: query = query.ilike("message", f"%{q}%")
+    return jsonify(query.execute().data)
+
+@app.route('/api/export/csv')
+@login_required
+def export_csv():
+    logs = supabase.table("logs").select("timestamp,log_level,source,message,is_anomaly").order("timestamp", desc=True).limit(1000).execute()
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["timestamp","log_level","source","message","is_anomaly"])
+    writer.writeheader()
+    writer.writerows(logs.data)
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=sentinel_report.csv'})
 
 @app.route('/api/stats')
 @login_required

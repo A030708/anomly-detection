@@ -58,7 +58,22 @@ FLIPKART_HTML = '''
     </div>
 
     <div class="checkout-box">
+        <h3>Search Products</h3>
+        <input type="text" id="search" placeholder="Search... (try ' OR 1=1 --)">
+        <button class="btn" style="width:100%" onclick="searchProducts()">Search</button>
+    </div>
+
+    <div class="checkout-box">
+        <h3>Leave a Review</h3>
+        <input type="text" id="review" placeholder="Write your review... (try <script> tag)">
+        <button class="btn" style="width:100%" onclick="submitReview()">Submit Review</button>
+        <div id="reviews" style="margin-top:10px; font-size:0.9rem;"></div>
+    </div>
+
+    <div class="checkout-box">
         <h3>Checkout Payment</h3>
+        <input type="text" id="coupon" placeholder="Coupon Code (try SAVE10)">
+        <button class="btn" style="width:100%; margin-bottom:10px; background:#2874f0" onclick="applyCoupon()">Apply Coupon</button>
         <input type="text" id="card" placeholder="Card Number (4242... for success)">
         <button class="btn" style="width:100%" onclick="pay()">Pay Now</button>
     </div>
@@ -84,6 +99,36 @@ FLIPKART_HTML = '''
             }).then(r => r.json()).then(data => {
                 alert(data.message);
             });
+        }
+
+        function searchProducts() {
+            const q = document.getElementById('search').value;
+            fetch('/api/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({query: q})
+            }).then(r => r.json()).then(data => alert(data.message));
+        }
+
+        function submitReview() {
+            const text = document.getElementById('review').value;
+            fetch('/api/review', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({review: text})
+            }).then(r => r.json()).then(data => {
+                alert(data.message);
+                if(data.safe) document.getElementById('reviews').innerText = 'Latest: ' + text;
+            });
+        }
+
+        function applyCoupon() {
+            const code = document.getElementById('coupon').value;
+            fetch('/api/coupon', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({code: code})
+            }).then(r => r.json()).then(data => alert(data.message));
         }
     </script>
 </body>
@@ -130,7 +175,56 @@ def pay():
     
     return jsonify({"message": f"Card Declined. ({failed_payments}/3 attempts)"})
 
+# TRAP 3: SQL Injection Detection
+@app.route('/api/search', methods=['POST'])
+def search():
+    data = request.json
+    query = data.get('query', '')
+    sql_patterns = ["'", '"', '--', ';', 'OR 1=1', 'DROP', 'UNION', 'SELECT', 'DELETE', 'INSERT']
+    if any(p.lower() in query.lower() for p in sql_patterns):
+        send_to_sentinel("CRITICAL", "flipkart-search", f"SQL INJECTION ATTEMPT: User searched '{query}'. Attack pattern detected.")
+        return jsonify({"message": "🚨 SQL INJECTION DETECTED! Security team notified."})
+    send_to_sentinel("INFO", "flipkart-search", f"User searched for '{query}'.")
+    return jsonify({"message": f"Found 3 results for '{query}'"})
+
+# TRAP 4: XSS Attack Detection
+@app.route('/api/review', methods=['POST'])
+def review():
+    data = request.json
+    text = data.get('review', '')
+    xss_patterns = ['<script', 'javascript:', 'onerror', 'onload', '<img', '<iframe', 'eval(']
+    if any(p.lower() in text.lower() for p in xss_patterns):
+        send_to_sentinel("CRITICAL", "flipkart-reviews", f"XSS ATTACK ATTEMPT: User injected '{text[:100]}' into review field.")
+        return jsonify({"message": "🚨 XSS ATTACK BLOCKED! Your session has been flagged.", "safe": False})
+    send_to_sentinel("INFO", "flipkart-reviews", f"User submitted review: '{text[:50]}'.")
+    return jsonify({"message": "Review submitted! Thank you.", "safe": True})
+
+# TRAP 5: Coupon Abuse Detection
+coupon_uses = {}
+@app.route('/api/coupon', methods=['POST'])
+def coupon():
+    data = request.json
+    code = data.get('code', '').upper()
+    coupon_uses[code] = coupon_uses.get(code, 0) + 1
+    
+    if coupon_uses[code] > 3:
+        send_to_sentinel("CRITICAL", "flipkart-promotions", f"COUPON ABUSE: Code '{code}' used {coupon_uses[code]} times. Exploitation detected.")
+        return jsonify({"message": f"🚨 COUPON ABUSE DETECTED! Code '{code}' has been revoked."})
+    
+    if code == "SAVE10":
+        send_to_sentinel("INFO", "flipkart-promotions", f"Coupon '{code}' applied successfully.")
+        return jsonify({"message": "Coupon applied! 10% discount added."})
+    
+    send_to_sentinel("WARNING", "flipkart-promotions", f"Invalid coupon code '{code}' attempted.")
+    return jsonify({"message": f"Invalid coupon code '{code}'."}) 
+
 if __name__ == '__main__':
     print("\n🛒 MINI-FLIPKART STARTING...")
     print("🔗 Open http://localhost:5001")
+    print("\n🎯 ATTACK DEMOS:")
+    print("   1. Cart: Enter -5 quantity")
+    print("   2. Payment: Fail 3 cards in a row")
+    print("   3. Search: Type ' OR 1=1 --")
+    print("   4. Review: Type <script>alert('xss')</script>")
+    print("   5. Coupon: Use SAVE10 more than 3 times\n")
     app.run(port=5001)
