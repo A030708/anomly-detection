@@ -548,8 +548,7 @@ if __name__ == '__main__':
     # Start the AI background thread
     threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
     
-    print("\n🛡️  SENTINEL AI SECURE COMMAND CENTER")
-    print("🧠 Auto-Analyzer is running in the background...")
-    print("🔒 Login -> Username: admin | Password: password")
-    print("🚀 Open http://localhost:5000\n")
-    app.run(debug=True, port=5000, use_reloader=False)
+    # Render provides a PORT environment variable, we must use it!
+    port = int(os.environ.get("PORT", 5000))
+    # On Render, we MUST bind to 0.0.0.0
+    app.run(host='0.0.0.0', port=port, debug=False)
