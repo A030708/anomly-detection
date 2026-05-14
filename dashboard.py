@@ -157,7 +157,8 @@ DASHBOARD_HTML = '''
             <div class="pulse-dot"></div>
             <span>System Online</span>
             <span style="margin-left: 1rem; color: var(--text-main);" id="live-clock">--:--:--</span>
-            <a href="/api/export/csv" class="btn btn-sm btn-cyan" style="margin-left: 0.75rem;"><i class="fa-solid fa-download" style="margin-right:4px"></i>CSV</a>
+            <a href="/analytics" class="btn btn-sm" style="margin-left: 0.75rem;"><i class="fa-solid fa-chart-line" style="margin-right:4px"></i>Analytics</a>
+            <a href="/api/export/csv" class="btn btn-sm btn-cyan" style="margin-left: 0.5rem;"><i class="fa-solid fa-download" style="margin-right:4px"></i>CSV</a>
             <a href="/logout" class="btn btn-sm" style="margin-left: 0.5rem;">Logout</a>
         </div>
     </div>
@@ -357,6 +358,132 @@ DASHBOARD_HTML = '''
     </script>
 </body>
 </html>
+'''
+
+# --- ANALYTICS PAGE HTML ---
+ANALYTICS_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentinel AI | Analytics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root{--bg-main:#020617;--bg-card:#0f172a;--border:#1e293b;--text-main:#f8fafc;--text-muted:#64748b;--cyan:#06b6d4;--red:#ef4444;--yellow:#f59e0b;--green:#10b981;--purple:#8b5cf6}
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:var(--bg-main);color:var(--text-main);font-family:'Inter',sans-serif}
+        .navbar{background:rgba(15,23,42,0.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50}
+        .logo{font-size:1.2rem;font-weight:700;display:flex;align-items:center;gap:0.75rem;color:var(--cyan)}
+        .btn{padding:0.4rem 0.9rem;border-radius:0.375rem;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);cursor:pointer;text-decoration:none;font-size:0.85rem}
+        .btn:hover{background:#1e293b}
+        .page{padding:2rem;display:grid;gap:1.5rem}
+        .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem}
+        .kpi-card{background:var(--bg-card);border:1px solid var(--border);border-radius:0.75rem;padding:1.25rem;animation:fadeUp 0.4s ease both}
+        .kpi-val{font-size:2rem;font-weight:700}
+        .kpi-lbl{font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;margin-top:4px}
+        .kpi-sub{font-size:0.8rem;margin-top:8px;color:var(--text-muted)}
+        .chart-grid{display:grid;grid-template-columns:2fr 1fr;gap:1.5rem}
+        .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+        .card{background:var(--bg-card);border:1px solid var(--border);border-radius:0.75rem;overflow:hidden;animation:fadeUp 0.4s ease both}
+        .card-header{padding:1rem 1.25rem;border-bottom:1px solid var(--border);font-weight:600;font-size:0.9rem;display:flex;align-items:center;gap:0.5rem}
+        .card-body{padding:1.25rem}
+        .source-row{display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border)}
+        .source-bar-bg{flex:1;height:6px;background:#1e293b;border-radius:9999px;overflow:hidden}
+        .source-bar{height:100%;background:var(--cyan);border-radius:9999px;transition:width 0.6s ease}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    </style>
+</head>
+<body>
+<div class="navbar">
+    <div class="logo"><i class="fa-solid fa-chart-line"></i> Analytics</div>
+    <div style="display:flex;gap:0.75rem;align-items:center;">
+        <a href="/" class="btn"><i class="fa-solid fa-arrow-left" style="margin-right:4px"></i>Dashboard</a>
+        <a href="/logout" class="btn">Logout</a>
+    </div>
+</div>
+<div class="page">
+    <div class="kpi-row">
+        <div class="kpi-card" style="border-left:3px solid var(--cyan)">
+            <div class="kpi-val" id="a-total" style="color:var(--cyan)">—</div>
+            <div class="kpi-lbl">Total Logs</div>
+            <div class="kpi-sub" id="a-total-sub"></div>
+        </div>
+        <div class="kpi-card" style="border-left:3px solid var(--yellow)">
+            <div class="kpi-val" id="a-anomalies" style="color:var(--yellow)">—</div>
+            <div class="kpi-lbl">Anomalies Detected</div>
+            <div class="kpi-sub" id="a-anomaly-rate"></div>
+        </div>
+        <div class="kpi-card" style="border-left:3px solid var(--red)">
+            <div class="kpi-val" id="a-critical" style="color:var(--red)">—</div>
+            <div class="kpi-lbl">Critical Events</div>
+            <div class="kpi-sub">Requires attention</div>
+        </div>
+        <div class="kpi-card" style="border-left:3px solid var(--green)">
+            <div class="kpi-val" id="a-sources" style="color:var(--green)">—</div>
+            <div class="kpi-lbl">Unique Sources</div>
+            <div class="kpi-sub">Active integrations</div>
+        </div>
+    </div>
+    <div class="chart-grid">
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-chart-area" style="color:var(--cyan)"></i> 7-Day Log Volume Trend</div>
+            <div class="card-body" style="height:280px"><canvas id="trendChart"></canvas></div>
+        </div>
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-circle-half-stroke" style="color:var(--purple)"></i> Severity Breakdown</div>
+            <div class="card-body" style="height:280px;display:flex;align-items:center;justify-content:center"><canvas id="sevChart"></canvas></div>
+        </div>
+    </div>
+    <div class="chart-row">
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-tower-broadcast" style="color:var(--yellow)"></i> Top Log Sources</div>
+            <div class="card-body" id="sources-list"></div>
+        </div>
+        <div class="card">
+            <div class="card-header"><i class="fa-solid fa-chart-bar" style="color:var(--red)"></i> Anomalies by Hour</div>
+            <div class="card-body" style="height:240px"><canvas id="hourChart"></canvas></div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let tC,sC,hC;
+    const COLORS={INFO:'#3b82f6',WARNING:'#eab308',ERROR:'#ef4444',CRITICAL:'#991b1b',DEBUG:'#64748b'};
+    async function loadAnalytics(){
+        const d=await fetch('/api/analytics_data').then(r=>r.json());
+        document.getElementById('a-total').innerText=d.total.toLocaleString();
+        document.getElementById('a-total-sub').innerText=d.today_count+' today';
+        document.getElementById('a-anomalies').innerText=d.anomaly_count.toLocaleString();
+        document.getElementById('a-anomaly-rate').innerText=d.anomaly_rate+'% anomaly rate';
+        document.getElementById('a-critical').innerText=d.critical_count.toLocaleString();
+        document.getElementById('a-sources').innerText=d.source_count.toLocaleString();
+        // Trend
+        const c1=document.getElementById('trendChart').getContext('2d');
+        if(tC)tC.destroy();
+        const g=c1.createLinearGradient(0,0,0,280);g.addColorStop(0,'rgba(6,182,212,0.35)');g.addColorStop(1,'rgba(6,182,212,0)');
+        tC=new Chart(c1,{type:'line',data:{labels:d.trend_labels,datasets:[{label:'All Logs',data:d.trend_all,borderColor:'#06b6d4',backgroundColor:g,fill:true,tension:0.4,pointRadius:4},{label:'Anomalies',data:d.trend_anomalies,borderColor:'#ef4444',backgroundColor:'transparent',fill:false,tension:0.4,pointRadius:3,borderDash:[4,4]}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{color:'#64748b'},grid:{color:'rgba(255,255,255,0.04)'}},y:{beginAtZero:true,ticks:{color:'#64748b'},grid:{color:'rgba(255,255,255,0.04)'}}},plugins:{legend:{labels:{color:'#cbd5e1'}}}}});
+        // Severity donut
+        const c2=document.getElementById('sevChart').getContext('2d');
+        if(sC)sC.destroy();
+        const sk=Object.keys(d.severity),sv=Object.values(d.severity);
+        sC=new Chart(c2,{type:'doughnut',data:{labels:sk,datasets:[{data:sv,backgroundColor:sk.map(k=>COLORS[k]||'#94a3b8'),borderWidth:0,hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{position:'bottom',labels:{color:'#cbd5e1',padding:12,font:{size:11}}}}}});
+        // Top sources
+        const sl=document.getElementById('sources-list');sl.innerHTML='';
+        const mx=Math.max(...Object.values(d.sources),1);
+        Object.entries(d.sources).slice(0,8).forEach(([src,cnt])=>{
+            sl.innerHTML+=`<div class="source-row"><span style="min-width:130px;font-size:0.82rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${src}</span><div class="source-bar-bg"><div class="source-bar" style="width:${Math.round(cnt/mx*100)}%"></div></div><span style="min-width:36px;text-align:right;font-size:0.82rem;font-weight:600">${cnt}</span></div>`;
+        });
+        // Hourly bar
+        const c3=document.getElementById('hourChart').getContext('2d');
+        if(hC)hC.destroy();
+        const hg=c3.createLinearGradient(0,0,0,240);hg.addColorStop(0,'rgba(239,68,68,0.6)');hg.addColorStop(1,'rgba(239,68,68,0.05)');
+        hC=new Chart(c3,{type:'bar',data:{labels:d.hour_labels,datasets:[{label:'Anomalies',data:d.hour_data,backgroundColor:hg,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{color:'#64748b',maxRotation:0},grid:{display:false}},y:{beginAtZero:true,ticks:{color:'#64748b'},grid:{color:'rgba(255,255,255,0.04)'}}},plugins:{legend:{display:false}}}});
+    }
+    loadAnalytics();setInterval(loadAnalytics,30000);
+</script>
+</body></html>
 '''
 
 # --- AUTOMATED AI BACKGROUND WORKER ---
@@ -616,6 +743,74 @@ def chart_data():
             ts = log.get("timestamp", "")[:16] 
             anomaly_timeline[ts] = anomaly_timeline.get(ts, 0) + 1
     return jsonify({ "levels": level_counts, "timeline": dict(sorted(anomaly_timeline.items())) })
+
+@app.route('/analytics')
+@login_required
+def analytics_page():
+    return render_template_string(ANALYTICS_HTML)
+
+@app.route('/api/analytics_data')
+@login_required
+def analytics_data():
+    from datetime import datetime, timedelta, timezone
+    # Fetch last 1000 logs for aggregation
+    res = supabase.table("logs").select("timestamp, log_level, source, is_anomaly").order("timestamp", desc=True).limit(1000).execute()
+    logs = res.data
+
+    # Totals
+    total = len(logs)
+    anomaly_count = sum(1 for l in logs if l.get("is_anomaly"))
+    critical_count = sum(1 for l in logs if l.get("log_level") == "CRITICAL")
+    anomaly_rate = round(anomaly_count / total * 100, 1) if total else 0
+
+    # Unique sources
+    sources_count = {}
+    for l in logs:
+        src = l.get("source", "unknown")
+        sources_count[src] = sources_count.get(src, 0) + 1
+    source_count = len(sources_count)
+    sources_sorted = dict(sorted(sources_count.items(), key=lambda x: x[1], reverse=True))
+
+    # Severity breakdown
+    severity = {"INFO": 0, "WARNING": 0, "ERROR": 0, "CRITICAL": 0, "DEBUG": 0}
+    for l in logs:
+        lvl = l.get("log_level", "INFO")
+        if lvl in severity: severity[lvl] += 1
+
+    # 7-day trend
+    today = datetime.now(timezone.utc).date()
+    trend_labels, trend_all, trend_anomalies = [], [], []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        day_str = day.isoformat()
+        trend_labels.append(day.strftime("%b %d"))
+        day_logs = [l for l in logs if l.get("timestamp", "")[:10] == day_str]
+        trend_all.append(len(day_logs))
+        trend_anomalies.append(sum(1 for l in day_logs if l.get("is_anomaly")))
+
+    # Today count
+    today_count = trend_all[-1] if trend_all else 0
+
+    # Anomalies by hour (last 24h)
+    hour_data = [0] * 24
+    hour_labels = [f"{h:02d}:00" for h in range(24)]
+    for l in logs:
+        ts = l.get("timestamp", "")
+        if ts and l.get("is_anomaly"):
+            try:
+                hour = int(ts[11:13])
+                hour_data[hour] += 1
+            except: pass
+
+    return jsonify({
+        "total": total, "today_count": today_count,
+        "anomaly_count": anomaly_count, "anomaly_rate": anomaly_rate,
+        "critical_count": critical_count, "source_count": source_count,
+        "severity": severity, "sources": sources_sorted,
+        "trend_labels": trend_labels, "trend_all": trend_all,
+        "trend_anomalies": trend_anomalies,
+        "hour_labels": hour_labels, "hour_data": hour_data
+    })
 
 # --- START BACKGROUND AI WORKER ---
 # This ensures the AI starts even when running on Render/Gunicorn
