@@ -1,5 +1,7 @@
 import os, csv, io, smtplib
-from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response
+from datetime import datetime
+from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response, send_file
+from fpdf import FPDF
 from flask_socketio import SocketIO, emit
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -158,7 +160,8 @@ DASHBOARD_HTML = '''
             <span>System Online</span>
             <span style="margin-left: 1rem; color: var(--text-main);" id="live-clock">--:--:--</span>
             <a href="/analytics" class="btn btn-sm" style="margin-left: 0.75rem;"><i class="fa-solid fa-chart-line" style="margin-right:4px"></i>Analytics</a>
-            <a href="/api/export/csv" class="btn btn-sm btn-cyan" style="margin-left: 0.5rem;"><i class="fa-solid fa-download" style="margin-right:4px"></i>CSV</a>
+            <a href="/api/export/csv" class="btn btn-sm btn-cyan" style="margin-left: 0.5rem;"><i class="fa-solid fa-file-csv" style="margin-right:4px"></i>CSV</a>
+            <a href="/api/report" class="btn btn-sm btn-outline-info" style="margin-left: 0.5rem; color: #06b6d4; border-color: #06b6d4;"><i class="fa-solid fa-file-pdf" style="margin-right:4px"></i>PDF Report</a>
             <a href="/logout" class="btn btn-sm" style="margin-left: 0.5rem;">Logout</a>
         </div>
     </div>
@@ -940,6 +943,67 @@ def analytics_data():
         "trend_anomalies": trend_anomalies,
         "hour_labels": hour_labels, "hour_data": hour_data
     })
+
+# --- PDF REPORT GENERATOR ---
+@app.route('/api/report')
+@login_required
+def generate_report():
+    try:
+        # 1. Fetch Data
+        logs_res = supabase.table("logs").select("*").order("timestamp", desc=True).limit(50).execute()
+        analysis_res = supabase.table("analysis").select("*").execute()
+        
+        # Map analysis to logs
+        analysis_map = {a['log_id']: a for a in analysis_res.data}
+        
+        # 2. Create PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        
+        # Header
+        pdf.cell(200, 10, txt="SENTINEL AI - SECURITY REPORT", ln=True, align='C')
+        pdf.set_font("Arial", size=10)
+        pdf.cell(200, 10, txt=f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='C')
+        pdf.ln(10)
+        
+        # Summary Section
+        total_logs = len(logs_res.data)
+        anomalies = sum(1 for log in logs_res.data if log['is_anomaly'])
+        
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(200, 10, txt="EXECUTIVE SUMMARY", ln=True)
+        pdf.set_font("Arial", size=10)
+        pdf.cell(200, 8, txt=f"Total Logs Monitored (Recent): {total_logs}", ln=True)
+        pdf.cell(200, 8, txt=f"Anomalies Detected: {anomalies}", ln=True)
+        pdf.ln(5)
+        
+        # Threat Details
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(200, 10, txt="THREAT ANALYSIS DETAILS", ln=True)
+        pdf.ln(2)
+        
+        for log in logs_res.data:
+            if log['is_anomaly']:
+                analysis = analysis_map.get(log['id'], {})
+                severity = analysis.get('severity', 'Pending')
+                
+                pdf.set_font("Arial", 'B', 10)
+                pdf.cell(200, 8, txt=f"[{severity}] Source: {log['source']}", ln=True)
+                pdf.set_font("Arial", size=9)
+                pdf.multi_cell(0, 5, txt=f"Log: {log['message'][:150]}...")
+                pdf.set_font("Arial", 'I', 9)
+                pdf.cell(200, 5, txt=f"Root Cause: {analysis.get('root_cause', 'Analyzing...')}", ln=True)
+                pdf.ln(3)
+
+        # 3. Output
+        report_path = os.path.join(os.getcwd(), "security_report.pdf")
+        pdf.output(report_path)
+        return send_file(report_path, as_attachment=True)
+        
+    except Exception as e:
+        print(f"Report Error: {e}")
+        return jsonify({"error": "Failed to generate report"}), 500
 
 @app.route('/api/chat', methods=['POST'])
 @login_required
