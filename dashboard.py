@@ -356,7 +356,6 @@ DASHBOARD_HTML = '''
         loadData();
         setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
     </script>
-    </script>
 
     <!-- ULTIMATE AI CHAT WIDGET -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -396,9 +395,7 @@ DASHBOARD_HTML = '''
 
     <script>
         function toggleChat() {
-            const chat = document.getElementById('chat-container');
-            const btn = document.getElementById('chat-toggle-btn');
-            chat.classList.toggle('active');
+            document.getElementById('chat-container').classList.toggle('active');
         }
         async function handleChat(e) {
             e.preventDefault();
@@ -418,6 +415,9 @@ DASHBOARD_HTML = '''
             }
             container.scrollTop = container.scrollHeight;
         }
+        // Compatibility for old cache
+        function openChat() { toggleChat(); }
+        function closeChat() { toggleChat(); }
     </script>
 </body>
 </html>
@@ -585,8 +585,7 @@ ANALYTICS_HTML = '''
 
 <script>
     function toggleChat() {
-        const chat = document.getElementById('chat-container');
-        chat.classList.toggle('active');
+        document.getElementById('chat-container').classList.toggle('active');
     }
     async function handleChat(e) {
         e.preventDefault();
@@ -606,6 +605,8 @@ ANALYTICS_HTML = '''
         }
         container.scrollTop = container.scrollHeight;
     }
+    function openChat() { toggleChat(); }
+    function closeChat() { toggleChat(); }
 </script>
 </body></html>
 '''
