@@ -30,16 +30,6 @@ app.secret_key = os.urandom(24)
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# --- START BACKGROUND AI WORKER ---
-# This ensures the AI starts even when running on Render/Gunicorn
-def start_ai_worker():
-    print("🧠 [System] Starting AI Anomaly Analyzer...")
-    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
-
-# We use a simple check to make sure it only starts once per process
-if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DEBUG"):
-    start_ai_worker()
-
 
 # --- SECURITY MODULE ---
 WEBHOOK_API_KEY = "sentinel-secure-key-123"
@@ -566,6 +556,17 @@ def chart_data():
             ts = log.get("timestamp", "")[:16] 
             anomaly_timeline[ts] = anomaly_timeline.get(ts, 0) + 1
     return jsonify({ "levels": level_counts, "timeline": dict(sorted(anomaly_timeline.items())) })
+
+# --- START BACKGROUND AI WORKER ---
+# This ensures the AI starts even when running on Render/Gunicorn
+def start_ai_worker():
+    print("🧠 [System] Starting AI Anomaly Analyzer...")
+    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
+
+# We use a simple check to make sure it only starts once per process
+# This prevents it from starting twice in local debug mode
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DEBUG"):
+    start_ai_worker()
 
 if __name__ == '__main__':
     # Render provides a PORT environment variable, we must use it!
