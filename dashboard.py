@@ -613,77 +613,76 @@ ANALYTICS_HTML = '''
 
 # --- AUTOMATED AI BACKGROUND WORKER ---
 def auto_analyze_anomalies():
-    """Runs in the background every 15 seconds to analyze new anomalies with LLM"""
-    print("[AI Worker] Checking for new anomalies...")
-    
-    try:
-        # 1. Find logs that are anomalies
-        logs_res = supabase.table("logs") \
-            .select("id, log_level, source, message") \
-            .eq("is_anomaly", True) \
-            .order("timestamp", desc=True) \
-            .limit(10) \
-            .execute()
-        
-        # 2. Get IDs that are already analyzed
-        analysis_res = supabase.table("analysis").select("log_id").execute()
-        analyzed_ids = {item['log_id'] for item in analysis_res.data}
-        
-        new_anomalies = [log for log in logs_res.data if log['id'] not in analyzed_ids]
-        
-        if new_anomalies:
-            for log in new_anomalies:
-                print(f"🤖 [AI Worker] Analyzing Log ID {log['id']} from {log['source']}...")
-                
-                try:
-                    response = groq_client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[{"role": "user", "content": f"Analyze this log. Respond ONLY in JSON with keys: root_cause, severity (Critical/High/Medium/Low), recommended_actions (list). Log: {log['message']}"}],
-                        temperature=0.1,
-                        max_tokens=200,
-                        response_format={"type": "json_object"}
-                    )
-                    result = json.loads(response.choices[0].message.content)
-                except Exception as e:
-                    print(f"   [AI Worker] LLM Error: {e}")
-                    result = {"root_cause": "LLM Analysis Failed", "severity": "Low", "recommended_actions": ["Manual review required"]}
-                
-                # 3. Save Analysis
-                supabase.table("analysis").insert({
-                    "log_id": log['id'],
-                    "root_cause": result.get("root_cause", "Unknown"),
-                    "severity": result.get("severity", "Medium"),
-                    "recommended_actions": result.get("recommended_actions", []),
-                    "confidence_score": 0.9
-                }).execute()
-                
-                # 4. Create Alert if needed
-                if result.get("severity") in ["Critical", "High"]:
-                    supabase.table("alerts").insert({
+    """Runs in the background every 45 seconds to analyze new anomalies with LLM"""
+    while True:
+        try:
+            print("[AI Worker] Checking for new anomalies...")
+            # 1. Find logs that are anomalies
+            logs_res = supabase.table("logs") \
+                .select("id, log_level, source, message") \
+                .eq("is_anomaly", True) \
+                .order("timestamp", desc=True) \
+                .limit(10) \
+                .execute()
+            
+            # 2. Get IDs that are already analyzed
+            analysis_res = supabase.table("analysis").select("log_id").execute()
+            analyzed_ids = {item['log_id'] for item in analysis_res.data}
+            
+            new_anomalies = [log for log in logs_res.data if log['id'] not in analyzed_ids]
+            
+            if new_anomalies:
+                for log in new_anomalies:
+                    print(f"[AI Worker] Analyzing Log ID {log['id']} from {log['source']}...")
+                    
+                    try:
+                        response = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "user", "content": f"Analyze this log. Respond ONLY in JSON with keys: root_cause, severity (Critical/High/Medium/Low), recommended_actions (list). Log: {log['message']}"}],
+                            temperature=0.1,
+                            max_tokens=200,
+                            response_format={"type": "json_object"}
+                        )
+                        result = json.loads(response.choices[0].message.content)
+                    except Exception as e:
+                        print(f"   [AI Worker] LLM Error: {e}")
+                        result = {"root_cause": "LLM Analysis Failed", "severity": "Low", "recommended_actions": ["Manual review required"]}
+                    
+                    # 3. Save Analysis
+                    supabase.table("analysis").insert({
                         "log_id": log['id'],
-                        "severity": result.get("severity"),
-                        "message": f"[{log['source']}] {result.get('root_cause')}",
-                        "is_resolved": False
+                        "root_cause": result.get("root_cause", "Unknown"),
+                        "severity": result.get("severity", "Medium"),
+                        "recommended_actions": result.get("recommended_actions", []),
+                        "confidence_score": 0.9
                     }).execute()
-                    print(f"   [AI Worker] ALERT CREATED: {result.get('severity')}")
-                    # REAL-TIME: push alert to all dashboards
-                    socketio.emit('new_alert', {
-                        "severity": result.get("severity"),
-                        "message": f"[{log['source']}] {result.get('root_cause')}",
-                        "root_cause": result.get("root_cause"),
-                        "recommended_actions": result.get("recommended_actions", [])
-                    })
-                    # Send email alert
-                    send_alert_email(
-                        f"🚨 Sentinel AI Alert: {result.get('severity')}",
-                        f"<h2>{result.get('severity')} Threat Detected</h2><p><b>Source:</b> {log['source']}</p><p><b>Root Cause:</b> {result.get('root_cause')}</p><p><b>Actions:</b></p><ul>{''.join(f'<li>{a}</li>' for a in result.get('recommended_actions',[]))}</ul>"
-                    )
-    except Exception as e:
-        print(f" [AI Worker] Global Error: {e}")
-    
-    # Wait 30s before next run to save server resources
-    time.sleep(30)
-    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
+                    
+                    # 4. Create Alert if needed
+                    if result.get("severity") in ["Critical", "High"]:
+                        supabase.table("alerts").insert({
+                            "log_id": log['id'],
+                            "severity": result.get("severity"),
+                            "message": f"[{log['source']}] {result.get('root_cause')}",
+                            "is_resolved": False
+                        }).execute()
+                        print(f"   [AI Worker] ALERT CREATED: {result.get('severity')}")
+                        # REAL-TIME: push alert to all dashboards
+                        socketio.emit('new_alert', {
+                            "severity": result.get("severity"),
+                            "message": f"[{log['source']}] {result.get('root_cause')}",
+                            "root_cause": result.get("root_cause"),
+                            "recommended_actions": result.get("recommended_actions", [])
+                        })
+                        # Send email alert
+                        send_alert_email(
+                            f"Sentinel AI Alert: {result.get('severity')}",
+                            f"<h2>{result.get('severity')} Threat Detected</h2><p><b>Source:</b> {log['source']}</p><p><b>Root Cause:</b> {result.get('root_cause')}</p><p><b>Actions:</b></p><ul>{''.join(f'<li>{a}</li>' for a in result.get('recommended_actions',[]))}</ul>"
+                        )
+        except Exception as e:
+            print(f" [AI Worker] Global Error: {e}")
+        
+        # Wait 45s before next run to save server resources on Render
+        time.sleep(45)
 
 # --- ROUTES ---
 @app.route('/login', methods=['GET', 'POST'])
