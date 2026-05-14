@@ -5,4 +5,3 @@ groq
 requests
 gunicorn
 flask-socketio
-eventlet
