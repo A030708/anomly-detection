@@ -1,7 +1,8 @@
 flask
+flask-socketio
 supabase
 python-dotenv
 groq
+fpdf
 requests
 gunicorn
-flask-socketio
