@@ -399,6 +399,13 @@ def index():
 @require_api_key
 def ingest_log():
     data = request.json
+    if data is None and request.form and 'payload' in request.form:
+        try:
+            data = json.loads(request.form['payload'])
+        except:
+            data = {}
+    if not data:
+        data = {}
     logs_to_insert = []
 
     # CHECK 1: Is this from our Fake Flipkart? (It sends a simple dict)
