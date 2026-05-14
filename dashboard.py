@@ -629,7 +629,7 @@ def auto_analyze_anomalies():
             analysis_res = supabase.table("analysis").select("log_id").execute()
             analyzed_ids = {item['log_id'] for item in analysis_res.data}
             
-            new_anomalies = [log for log in logs_res.data if log['id'] not in analyzed_ids]
+            new_anomalies = [log for log in logs_res.data if log['id'] not in analyzed_ids][:3]
             
             if new_anomalies:
                 for log in new_anomalies:
