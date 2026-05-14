@@ -10,6 +10,18 @@ from groq import Groq
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+import os, csv, io, smtplib
+from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response
+from supabase import create_client, Client
+from dotenv import load_dotenv
+from functools import wraps
+import threading
+import time
+import json
+from groq import Groq
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -17,6 +29,17 @@ app.secret_key = os.urandom(24)
 
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# --- START BACKGROUND AI WORKER ---
+# This ensures the AI starts even when running on Render/Gunicorn
+def start_ai_worker():
+    print("🧠 [System] Starting AI Anomaly Analyzer...")
+    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
+
+# We use a simple check to make sure it only starts once per process
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DEBUG"):
+    start_ai_worker()
+
 
 # --- SECURITY MODULE ---
 WEBHOOK_API_KEY = "sentinel-secure-key-123"
@@ -545,9 +568,6 @@ def chart_data():
     return jsonify({ "levels": level_counts, "timeline": dict(sorted(anomaly_timeline.items())) })
 
 if __name__ == '__main__':
-    # Start the AI background thread
-    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
-    
     # Render provides a PORT environment variable, we must use it!
     port = int(os.environ.get("PORT", 5000))
     # On Render, we MUST bind to 0.0.0.0
