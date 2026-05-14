@@ -356,6 +356,159 @@ DASHBOARD_HTML = '''
         loadData();
         setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
     </script>
+    
+    <!-- ULTIMATE AI CHAT WIDGET -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        #chat-container {
+            position: fixed; bottom: 20px; right: 20px; width: 390px; height: 520px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(6, 182, 212, 0.2); 
+            border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 30px rgba(6, 182, 212, 0.05);
+            display: flex; flex-direction: column; z-index: 9999; overflow: hidden;
+            font-family: 'Inter', -apple-system, sans-serif;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateY(20px) scale(0.95); opacity: 0; pointer-events: none;
+        }
+        #chat-container.active { transform: translateY(0) scale(1); opacity: 1; pointer-events: all; }
+        
+        #chat-header {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(15, 23, 42, 0.8) 100%);
+            padding: 18px 20px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        #chat-messages {
+            flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px;
+            background: rgba(2, 6, 23, 0.6); scroll-behavior: smooth;
+        }
+        #chat-messages::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+        
+        .chat-bubble { max-width: 85%; padding: 12px 16px; border-radius: 16px; font-size: 13.5px; line-height: 1.6; word-wrap: break-word; letter-spacing: 0.01em; }
+        .chat-user { align-self: flex-end; background: #06b6d4; color: #020617; border-bottom-right-radius: 4px; font-weight: 600; box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3); }
+        .chat-ai { align-self: flex-start; background: #1e293b; color: #e2e8f0; border-bottom-left-radius: 4px; border: 1px solid #334155; }
+        .chat-ai code { font-family: 'JetBrains Mono', monospace; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+        
+        .typing-indicator { display: flex; gap: 5px; padding: 14px 18px; align-self: flex-start; background: #1e293b; border-radius: 16px; border-bottom-left-radius: 4px; border: 1px solid #334155;}
+        .typing-indicator span { width: 8px; height: 8px; background: #06b6d4; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); opacity:0.5; } 40% { transform: scale(1); opacity:1; } }
+        
+        #chat-input-area { padding: 15px; background: rgba(15, 23, 42, 0.9); border-top: 1px solid rgba(255,255,255,0.03);}
+        #chat-form { display: flex; gap: 10px; background: #0f172a; border-radius: 14px; padding: 6px 6px 6px 18px; align-items: center; border: 1px solid #334155; transition: all 0.3s; }
+        #chat-form:focus-within { border-color: rgba(6, 182, 212, 0.5); box-shadow: 0 0 15px rgba(6, 182, 212, 0.15); }
+        #chat-input { flex: 1; background: transparent; border: none; color: white; font-size: 14px; outline: none; font-family: 'Inter', sans-serif; }
+        
+        #chat-send { width: 38px; height: 38px; background: linear-gradient(135deg, #06b6d4, #8b5cf6); border: none; border-radius: 10px; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+        
+        @keyframes shootUp { 0% { transform: rotate(-45deg) scale(1); opacity: 1; } 50% { transform: rotate(-45deg) scale(1.2) translateY(-5px); opacity: 0.5; } 100% { transform: rotate(-45deg) scale(0.5) translateY(-30px); opacity: 0; } }
+        .shoot-animation #send-icon { animation: shootUp 0.4s ease-out forwards; }
+        
+        #chat-toggle-btn { position: fixed; bottom: 25px; right: 25px; width: 62px; height: 62px; background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%); border: none; border-radius: 50%; box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4); cursor: pointer; z-index: 9998; display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+        #chat-toggle-btn:hover { transform: scale(1.1) rotate(10deg); box-shadow: 0 12px 30px rgba(6, 182, 212, 0.6);}
+        #chat-toggle-btn.hidden { transform: scale(0) rotate(180deg); opacity: 0; pointer-events: none; }
+        
+        .llama-badge { font-size: 10px; color: #64748b; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: 500;}
+    </style>
+
+    <button id="chat-toggle-btn" onclick="openChat()"><i class="fa-solid fa-wand-magic-sparkles" style="font-size: 22px; color: white;"></i></button>
+
+    <div id="chat-container">
+        <div id="chat-header">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #06b6d4, #8b5cf6); border-radius: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);"><i class="fa-solid fa-atom" style="color: white; font-size: 16px;"></i></div>
+                <div>
+                    <div style="font-weight: 700; font-size: 15px; color: #f8fafc; display:flex; align-items:center;">Sentinel Intelligence <span class="llama-badge">LLAMA 3</span></div>
+                    <div style="font-size: 11px; color: #10b981; display:flex; align-items:center; gap:4px;"><span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;"></span> Context-Aware Online</div>
+                </div>
+            </div>
+            <button onclick="closeChat()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #94a3b8; cursor: pointer; font-size: 16px; width: 30px; height: 30px; border-radius: 8px; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div id="chat-messages">
+            <div style="text-align: center; color: #475569; margin-top: 140px; font-size: 13px; padding: 0 20px;">
+                <div style="font-size: 40px; margin-bottom: 20px; opacity: 0.3;">🛡️</div>
+                <div style="font-weight: 600; color: #64748b; margin-bottom: 8px;">Natural Language Query Engine</div>
+                Ask me to summarize threats, analyze anomalies, or query specific logs.
+            </div>
+        </div>
+
+        <div id="chat-input-area">
+            <form id="chat-form" onsubmit="sendChat(event)">
+                <input type="text" id="chat-input" placeholder="e.g. What were the critical errors in the last hour?" autocomplete="off">
+                <button type="submit" id="chat-send"><i id="send-icon" class="fa-solid fa-location-arrow" style="font-size: 16px; transform: rotate(-45deg);"></i></button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openChat() {
+            document.getElementById('chat-container').classList.add('active');
+            document.getElementById('chat-toggle-btn').classList.add('hidden');
+            setTimeout(() => document.getElementById('chat-input').focus(), 400);
+        }
+
+        function closeChat() {
+            document.getElementById('chat-container').classList.remove('active');
+            setTimeout(() => document.getElementById('chat-toggle-btn').classList.remove('hidden'), 400);
+        }
+
+        function formatAItext(text) {
+            if (!text) return "No response.";
+            let safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+            safe = safe.replace(/`(.*?)`/g, "<code>$1</code>");
+            safe = safe.replace(/\n/g, "<br>");
+            return safe;
+        }
+
+        async function sendChat(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            const body = document.getElementById('chat-messages');
+            
+            body.innerHTML += `<div class="chat-bubble chat-user">${msg}</div>`;
+            input.value = '';
+            
+            const sendBtn = document.getElementById('chat-send');
+            sendBtn.classList.add('shoot-animation');
+            setTimeout(() => sendBtn.classList.remove('shoot-animation'), 400);
+            
+            body.scrollTop = body.scrollHeight;
+
+            const loaderId = 'loader-' + Date.now();
+            body.innerHTML += `<div id="${loaderId}" class="typing-indicator"><span></span><span></span><span></span></div>`;
+            body.scrollTop = body.scrollHeight;
+
+            try {
+                const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: msg }) });
+                const data = await res.json();
+                
+                document.getElementById(loaderId).remove();
+                const cleanReply = formatAItext(data.reply);
+                
+                body.innerHTML += `
+                    <div class="chat-bubble chat-ai">
+                        <div style="font-size: 10px; color: #06b6d4; margin-bottom: 8px; font-weight: 700; letter-spacing: 0.05em; display:flex; align-items:center; gap:6px;">
+                            <i class="fa-solid fa-shield-halved" style="font-size:9px;"></i> SENTINEL AI
+                        </div>
+                        ${cleanReply}
+                    </div>`;
+            } catch (err) {
+                if(document.getElementById(loaderId)) document.getElementById(loaderId).remove();
+                body.innerHTML += `<div class="chat-bubble chat-ai" style="color: #f87171; font-family: 'JetBrains Mono', monospace; font-size: 12px;">⚠ Network Error</div>`;
+            }
+            body.scrollTop = body.scrollHeight;
+        }
+    </script>
 </body>
 </html>
 '''
@@ -811,6 +964,40 @@ def analytics_data():
         "trend_anomalies": trend_anomalies,
         "hour_labels": hour_labels, "hour_data": hour_data
     })
+
+@app.route('/api/chat', methods=['POST'])
+@login_required
+def chat_with_ai():
+    data = request.json
+    user_msg = data.get("message", "")
+    
+    try:
+        # 1. Fetch Real-time Context for the AI
+        stats = supabase.table("logs").select("id", count="exact").execute()
+        anomalies = supabase.table("logs").select("timestamp, source, message")\
+            .eq("is_anomaly", True).order("timestamp", desc=True).limit(5).execute()
+        
+        context_str = f"System Stats: Total Logs: {stats.count}. \n"
+        context_str += "Recent Anomalies:\n"
+        for a in anomalies.data:
+            context_str += f"- [{a['timestamp']}] {a['source']}: {a['message'][:100]}\n"
+
+        # 2. Query Llama 3 with Context
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": f"You are Sentinel Intelligence, the AI core of this security platform. Use this context to answer user questions about the system: {context_str}. Be concise, professional, and security-focused. Use markdown for code or technical details."},
+                {"role": "user", "content": user_msg}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        reply = response.choices[0].message.content
+        return jsonify({"reply": reply})
+    except Exception as e:
+        print(f"❌ Chat Error: {e}")
+        return jsonify({"reply": "I'm having trouble connecting to my neural core right now. Please check my API status."}), 500
 
 # --- START BACKGROUND AI WORKER ---
 # This ensures the AI starts even when running on Render/Gunicorn
