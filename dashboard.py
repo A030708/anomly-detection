@@ -408,7 +408,7 @@ def logout():
 def index():
     return render_template_string(DASHBOARD_HTML)
 
-@app.route('/api/ingest', methods=['POST'])
+@app.route('/api/ingest', methods=['GET', 'POST'], strict_slashes=False)
 @require_api_key
 def ingest_log():
     data = request.json
