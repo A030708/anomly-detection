@@ -1,17 +1,6 @@
 import os, csv, io, smtplib
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from functools import wraps
-import threading
-import time
-import json
-from groq import Groq
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-import os, csv, io, smtplib
-from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response
+from flask_socketio import SocketIO, emit
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from functools import wraps
@@ -25,7 +14,8 @@ from email.mime.multipart import MIMEMultipart
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24) 
+app.secret_key = os.urandom(24)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -123,6 +113,7 @@ DASHBOARD_HTML = '''
         .status-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: var(--text-muted); }
         .pulse-dot { width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green); animation: pulse 2s infinite; }
         @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
         .dashboard-container { padding: 1.5rem 2rem; display: grid; gap: 1.5rem; }
         .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 0.75rem; overflow: hidden; }
         .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; }
@@ -218,10 +209,54 @@ DASHBOARD_HTML = '''
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         let currentPage = 1; const perPage = 40; let dChart, lChart;
         setInterval(() => { document.getElementById('live-clock').innerText = new Date().toLocaleTimeString(); }, 1000);
-        
+
+        // --- Socket.IO Real-Time Connection ---
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('⚡ Real-time connected');
+            document.querySelector('.pulse-dot').style.background = '#10b981';
+        });
+
+        socket.on('disconnect', () => {
+            console.log('🔌 Real-time disconnected');
+            document.querySelector('.pulse-dot').style.background = '#ef4444';
+        });
+
+        // When a new log arrives, prepend it instantly to the terminal
+        socket.on('new_log', (log) => {
+            const container = document.getElementById('log-stream');
+            const colors = { ERROR: '#f87171', WARNING: '#fbbf24', INFO: '#60a5fa', DEBUG: '#94a3b8', CRITICAL: '#ff4d4f' };
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            div.style.animation = 'fadeIn 0.4s ease';
+            const time = new Date(log.timestamp).toLocaleTimeString();
+            div.innerHTML = `<span class="log-ts">${time}</span><span class="log-level" style="color:${colors[log.log_level]}">[${log.log_level}]</span><span style="color:#94a3b8; min-width:100px;">[${log.source}]</span>${log.is_anomaly ? '<span class="anomaly-badge">ANOMALY</span>' : '<span style="width:60px"></span>'}<span class="log-msg"></span>`;
+            div.querySelector('.log-msg').textContent = log.message;
+            container.insertBefore(div, container.firstChild);
+            // Keep terminal from growing too large
+            while (container.children.length > 80) container.removeChild(container.lastChild);
+            fetchStats(); // Update KPI counters
+        });
+
+        // When AI detects a threat, show alert banner instantly
+        socket.on('new_alert', (alert) => {
+            const container = document.getElementById('alerts-panel');
+            // Remove "No active threats" placeholder if present
+            const placeholder = container.querySelector('p');
+            if (placeholder) placeholder.remove();
+            const div = document.createElement('div');
+            div.className = `alert-item alert-critical`;
+            div.style.animation = 'fadeIn 0.4s ease';
+            div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:700; font-size:0.8rem; margin-bottom:4px; color:#f87171">🚨 ${alert.severity}</div><p style="font-size:0.85rem; color:#cbd5e1;">${alert.message}</p></div></div>`;
+            container.insertBefore(div, container.firstChild);
+            fetchStats();
+        });
+
         // Cookie Auth for internal API calls
         async function secureFetch(url) { return fetch(url).then(r => r.json()); }
 
@@ -315,7 +350,10 @@ DASHBOARD_HTML = '''
         }
 
         function changePage(dir) { const p = currentPage + dir; if(p > 0) { currentPage = p; fetchLogs(); } }
-        loadData(); setInterval(loadData, 4000);
+
+        // Initial load + slow poll for charts only (30s fallback)
+        loadData();
+        setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
     </script>
 </body>
 </html>
@@ -376,6 +414,13 @@ def auto_analyze_anomalies():
                         "is_resolved": False
                     }).execute()
                     print(f"   🚨 [AI Worker] ALERT CREATED: {result.get('severity')}")
+                    # 🔴 REAL-TIME: push alert to all dashboards
+                    socketio.emit('new_alert', {
+                        "severity": result.get("severity"),
+                        "message": f"[{log['source']}] {result.get('root_cause')}",
+                        "root_cause": result.get("root_cause"),
+                        "recommended_actions": result.get("recommended_actions", [])
+                    })
                     # Send email alert
                     send_alert_email(
                         f"🚨 Sentinel AI Alert: {result.get('severity')}",
@@ -488,6 +533,14 @@ def ingest_log():
                 "is_anomaly": is_anomaly,
                 "structured_data": log
             }).execute()
+            # 🔴 REAL-TIME: push new log to all connected dashboards instantly
+            socketio.emit('new_log', {
+                "log_level": level,
+                "message": log.get('message', ''),
+                "source": log.get('source', 'unknown'),
+                "is_anomaly": is_anomaly,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -576,7 +629,5 @@ if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DE
     start_ai_worker()
 
 if __name__ == '__main__':
-    # Render provides a PORT environment variable, we must use it!
     port = int(os.environ.get("PORT", 5000))
-    # On Render, we MUST bind to 0.0.0.0
-    app.run(host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
