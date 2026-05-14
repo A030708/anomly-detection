@@ -680,8 +680,10 @@ def auto_analyze_anomalies():
                     )
     except Exception as e:
         print(f"❌ [AI Worker] Global Error: {e}")
-
-    threading.Timer(15.0, auto_analyze_anomalies).start()
+    
+    # Wait 30s before next run to save server resources
+    time.sleep(30)
+    threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
 
 # --- ROUTES ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -969,7 +971,7 @@ def chat_with_ai():
         return jsonify({"reply": reply})
     except Exception as e:
         print(f"❌ Chat Error: {e}")
-        return jsonify({"reply": "I'm having trouble connecting to my neural core right now. Please check my API status."}), 500
+        return jsonify({"reply": "I'm having a slight delay in my neural core (Server busy). Please try again in a moment."}), 200
 
 # --- START BACKGROUND AI WORKER ---
 # This ensures the AI starts even when running on Render/Gunicorn
