@@ -1,4 +1,4 @@
-import os, csv, io, smtplib
+import os, csv, io, smtplib, requests
 from datetime import datetime
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, Response, send_file
 from fpdf import FPDF
@@ -56,9 +56,19 @@ def send_alert_email(subject, html_body):
         s = smtplib.SMTP("smtp.gmail.com", 587); s.starttls()
         s.login(sender, password)
         s.sendmail(sender, to_email, msg.as_string()); s.quit()
-        print(f"   [Email] Alert sent to {to_email}")
     except Exception as e:
         print(f"   [Email] Error: {e}")
+
+def send_telegram_msg(message):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id: return
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"})
+        print(f"   [Telegram] Alert sent successfully")
+    except Exception as e:
+        print(f"   [Telegram] Error: {e}")
 
 # --- LOGIN PAGE HTML ---
 LOGIN_HTML = '''
@@ -215,7 +225,8 @@ DASHBOARD_HTML = '''
                             <option value="flipkart-app">Flipkart App</option>
                             <option value="system">System</option>
                         </select>
-                        <button class="btn btn-sm" onclick="searchLogs()"><i class="fa-solid fa-search"></i></button>
+                        <button class="btn btn-green" onclick="generateReport()"><i class="fa-solid fa-file-pdf"></i> Security Report</button>
+                        <button class="btn" onclick="testTelegram()"><i class="fa-solid fa-paper-plane"></i> Test Telegram</button>
                         <button class="btn btn-sm" onclick="clearSearch()" title="Clear"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                     <div id="log-stream" class="terminal"></div>
@@ -389,6 +400,18 @@ DASHBOARD_HTML = '''
         // Initial load + slow poll for charts only (30s fallback)
         loadData();
         setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
+        
+        async function testTelegram() {
+            try {
+                const res = await fetch('/api/test_telegram', {method:'POST'});
+                const data = await res.json();
+                alert(data.message || data.error);
+            } catch(e) { alert("Failed to connect to server"); }
+        }
+
+        async function generateReport() {
+            window.location.href = '/api/report';
+        }
     </script>
 
     <!-- ULTIMATE AI CHAT WIDGET -->
@@ -639,6 +662,13 @@ ANALYTICS_HTML = '''
         }
         container.scrollTop = container.scrollHeight;
     }
+    async function testTelegram() {
+        try {
+            const res = await fetch('/api/test_telegram', {method:'POST'});
+            const data = await res.json();
+            alert(data.message || data.error);
+        } catch(e) { alert("Failed to connect to server"); }
+    }
     function openChat() { toggleChat(); }
     function closeChat() { toggleChat(); }
 </script>
@@ -710,11 +740,13 @@ def auto_analyze_anomalies():
                             "root_cause": result.get("root_cause"),
                             "recommended_actions": result.get("recommended_actions", [])
                         })
-                        # Send email alert
-                        send_alert_email(
-                            f"Sentinel AI Alert: {result.get('severity')}",
-                            f"<h2>{result.get('severity')} Threat Detected</h2><p><b>Source:</b> {log['source']}</p><p><b>Root Cause:</b> {result.get('root_cause')}</p><p><b>Actions:</b></p><ul>{''.join(f'<li>{a}</li>' for a in result.get('recommended_actions',[]))}</ul>"
-                        )
+                        # Send Telegram alert
+                        telegram_msg = f"🚨 *SENTINEL ALERT: {result.get('severity')}*\n\n" \
+                                       f"📍 *Source:* {log['source']}\n" \
+                                       f"🔍 *Root Cause:* {result.get('root_cause')}\n\n" \
+                                       f"🛠 *Recommended Actions:*\n" + \
+                                       "\n".join([f"• {a}" for a in result.get('recommended_actions', [])])
+                        send_telegram_msg(telegram_msg)
         except Exception as e:
             print(f" [AI Worker] Global Error: {e}")
         
@@ -865,7 +897,16 @@ def get_alerts():
     res = supabase.table("alerts").select("*").eq("is_resolved", False).order("created_at", desc=True).limit(10).execute()
     return jsonify(res.data)
 
-@app.route('/api/alerts/<int:alert_id>/resolve', methods=['POST'])
+@app.route('/api/test_telegram', methods=['POST'])
+@login_required
+def test_telegram_route():
+    try:
+        send_telegram_msg("🔔 *Sentinel Connectivity Test*\n\nYour Telegram bot is now successfully linked to the Sentinel AI Dashboard. Real-time alerts will appear here.")
+        return jsonify({"message": "Test message sent! Check your Telegram."}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/mitigate/<int:log_id>', methods=['POST'])
 @login_required
 def resolve_alert(alert_id):
     supabase.table("alerts").update({"is_resolved": True}).eq("id", alert_id).execute()
