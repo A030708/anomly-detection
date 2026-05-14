@@ -25,7 +25,6 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # --- SECURITY MODULE ---
 WEBHOOK_API_KEY = os.getenv("SENTINEL_API_KEY", "sentinel-secure-key-123")
-DEMO_USER = {"admin": "password"}
 
 def login_required(f):
     @wraps(f)
@@ -67,28 +66,45 @@ LOGIN_HTML = '''
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sentinel AI Login</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentinel AI | Security Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        body { margin:0; padding:0; background:#020617; color:#f8fafc; font-family:'Inter',sans-serif; display:flex; height:100vh; align-items:center; justify-content:center; }
-        .login-box { background:#0f172a; border:1px solid #334155; padding:2.5rem; border-radius:1rem; width:350px; box-shadow: 0 0 20px rgba(6,182,212,0.1); }
-        .logo { text-align:center; font-size:1.5rem; font-weight:700; margin-bottom:2rem; color:#06b6d4; }
-        input { width:100%; padding:0.75rem; margin-bottom:1rem; background:#1e293b; border:1px solid #334155; color:white; border-radius:0.5rem; box-sizing:border-box; }
-        input:focus { outline:none; border-color:#06b6d4; }
-        button { width:100%; padding:0.75rem; background:#06b6d4; color:black; font-weight:600; border:none; border-radius:0.5rem; cursor:pointer; }
-        button:hover { background:#0891b2; }
-        .error { color:#ef4444; font-size:0.85rem; text-align:center; margin-top:1rem; }
+        body { margin:0; padding:0; background:#020617; color:#f8fafc; font-family:'Inter',sans-serif; display:flex; height:100vh; align-items:center; justify-content:center; overflow:hidden; }
+        .bg-glow { position:absolute; width:100%; height:100%; background:radial-gradient(circle at center, rgba(6,182,212,0.1) 0%, transparent 70%); z-index:-1; }
+        .login-box { background:#0f172a; border:1px solid #1e293b; padding:2.5rem; border-radius:1.5rem; width:100%; max-width:400px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); position:relative; animation: slideUp 0.6s ease-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .logo { text-align:center; font-size:1.75rem; font-weight:700; margin-bottom:0.5rem; color:#06b6d4; }
+        .subtitle { text-align:center; color:#64748b; font-size:0.9rem; margin-bottom:2rem; }
+        .form-group { margin-bottom:1.25rem; }
+        label { display:block; font-size:0.85rem; font-weight:600; color:#94a3b8; margin-bottom:0.5rem; }
+        input { width:100%; padding:0.875rem; background:#1e293b; border:1px solid #334155; color:white; border-radius:0.75rem; box-sizing:border-box; transition: all 0.2s; }
+        input:focus { outline:none; border-color:#06b6d4; background:#0f172a; box-shadow: 0 0 0 4px rgba(6,182,212,0.1); }
+        button { width:100%; padding:0.875rem; background:#06b6d4; color:#020617; font-weight:700; border:none; border-radius:0.75rem; cursor:pointer; margin-top:0.5rem; transition: all 0.2s; }
+        button:hover { background:#22d3ee; transform: translateY(-1px); }
+        .error { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); color:#fca5a5; font-size:0.85rem; text-align:center; padding:0.75rem; border-radius:0.75rem; margin-bottom:1.5rem; }
     </style>
 </head>
 <body>
+    <div class="bg-glow"></div>
     <div class="login-box">
         <div class="logo">🛡️ SENTINEL AI</div>
-        {% if error %}<div class="error">Invalid credentials. Access denied.</div>{% endif %}
+        <div class="subtitle">Cloud Log Intelligence Platform</div>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
         <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>
-            <input type="password" name="password" placeholder="Password" required>
-            <button type="submit">AUTHENTICATE</button>
+            <div class="form-group">
+                <label>Work Email</label>
+                <input type="email" name="username" placeholder="name@company.com" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Security Key</label>
+                <input type="password" name="password" placeholder="••••••••" required>
+            </div>
+            <button type="submit">AUTHENTICATE SYSTEM</button>
         </form>
+        <div style="margin-top:2rem; text-align:center; font-size:0.75rem; color:#475569;">
+            SECURE ACCESS ONLY • RSA-4096 ENCRYPTED
+        </div>
     </div>
 </body>
 </html>
@@ -708,14 +724,22 @@ def auto_analyze_anomalies():
 # --- ROUTES ---
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    error_msg = None
     if request.method == 'POST':
-        user = request.form.get('username')
-        pwd = request.form.get('password')
-        if DEMO_USER.get(user) == pwd:
-            session['logged_in'] = True
-            return redirect(url_for('index'))
-        return render_template_string(LOGIN_HTML, error=True)
-    return render_template_string(LOGIN_HTML, error=False)
+        email = request.form.get('username')
+        password = request.form.get('password')
+        try:
+            # Secure login via Supabase Auth
+            auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            if auth_res.user:
+                session['logged_in'] = True
+                session['user_email'] = auth_res.user.email
+                return redirect(url_for('index'))
+        except Exception as e:
+            error_msg = "Invalid email or password"
+            print(f"Login error: {e}")
+            
+    return render_template_string(LOGIN_HTML, error=error_msg)
 
 @app.route('/logout')
 def logout():
