@@ -190,6 +190,15 @@ DASHBOARD_HTML = '''
                             <option value="CRITICAL">CRITICAL</option>
                             <option value="DEBUG">DEBUG</option>
                         </select>
+                        <select id="anomaly-filter" onchange="searchLogs()">
+                            <option value="">All Logs</option>
+                            <option value="true">Anomalies Only</option>
+                        </select>
+                        <select id="source-filter" onchange="searchLogs()">
+                            <option value="">All Sources</option>
+                            <option value="flipkart-app">Flipkart App</option>
+                            <option value="system">System</option>
+                        </select>
                         <button class="btn btn-sm" onclick="searchLogs()"><i class="fa-solid fa-search"></i></button>
                         <button class="btn btn-sm" onclick="clearSearch()" title="Clear"><i class="fa-solid fa-xmark"></i></button>
                     </div>
@@ -331,9 +340,13 @@ DASHBOARD_HTML = '''
         async function searchLogs() {
             const q = document.getElementById('search-input').value;
             const level = document.getElementById('level-filter').value;
+            const anomaly = document.getElementById('anomaly-filter').value;
+            const source = document.getElementById('source-filter').value;
             let url = '/api/logs/search?';
             if(q) url += `q=${encodeURIComponent(q)}&`;
-            if(level) url += `level=${level}`;
+            if(level) url += `level=${level}&`;
+            if(anomaly) url += `anomaly=${anomaly}&`;
+            if(source) url += `source=${source}`;
             const data = await secureFetch(url);
             const container = document.getElementById('log-stream'); container.innerHTML = '';
             if(!data.length) { container.innerHTML = '<p style="text-align:center; color:#475569; padding:2rem;">No results.</p>'; return; }
@@ -350,6 +363,8 @@ DASHBOARD_HTML = '''
         function clearSearch() {
             document.getElementById('search-input').value = '';
             document.getElementById('level-filter').value = '';
+            document.getElementById('anomaly-filter').value = '';
+            document.getElementById('source-filter').value = '';
             currentPage = 1; fetchLogs();
         }
 
@@ -837,8 +852,12 @@ def resolve_alert(alert_id):
 def search_logs():
     q = request.args.get('q', '')
     level = request.args.get('level', '')
+    anomaly = request.args.get('anomaly', '')
+    source = request.args.get('source', '')
     query = supabase.table("logs").select("*").order("timestamp", desc=True).limit(50)
     if level: query = query.eq("log_level", level)
+    if anomaly == 'true': query = query.eq("is_anomaly", True)
+    if source: query = query.eq("source", source)
     if q: query = query.ilike("message", f"%{q}%")
     return jsonify(query.execute().data)
 
