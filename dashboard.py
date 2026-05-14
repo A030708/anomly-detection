@@ -411,12 +411,19 @@ def index():
 @app.route('/api/ingest', methods=['GET', 'POST'], strict_slashes=False)
 @require_api_key
 def ingest_log():
-    data = request.json
-    if data is None and request.form and 'payload' in request.form:
-        try:
-            data = json.loads(request.form['payload'])
-        except:
-            data = {}
+    # Use silent=True to prevent 415 errors if content-type isn't application/json
+    data = request.get_json(silent=True)
+    
+    # If it's not JSON, check if it's form data (like GitHub's x-www-form-urlencoded)
+    if not data:
+        if 'payload' in request.form:
+            try:
+                data = json.loads(request.form['payload'])
+            except:
+                data = request.form.to_dict()
+        else:
+            data = request.form.to_dict()
+
     if not data:
         data = {}
     logs_to_insert = []
