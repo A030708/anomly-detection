@@ -55,9 +55,9 @@ def send_alert_email(subject, html_body):
         s = smtplib.SMTP("smtp.gmail.com", 587); s.starttls()
         s.login(sender, password)
         s.sendmail(sender, to_email, msg.as_string()); s.quit()
-        print(f"   📧 [Email] Alert sent to {to_email}")
+        print(f"   [Email] Alert sent to {to_email}")
     except Exception as e:
-        print(f"   ⚠️ [Email] Error: {e}")
+        print(f"   [Email] Error: {e}")
 
 # --- LOGIN PAGE HTML ---
 LOGIN_HTML = '''
@@ -614,7 +614,7 @@ ANALYTICS_HTML = '''
 # --- AUTOMATED AI BACKGROUND WORKER ---
 def auto_analyze_anomalies():
     """Runs in the background every 15 seconds to analyze new anomalies with LLM"""
-    print("🧠 [AI Worker] Checking for new anomalies...")
+    print("[AI Worker] Checking for new anomalies...")
     
     try:
         # 1. Find logs that are anomalies
@@ -645,7 +645,7 @@ def auto_analyze_anomalies():
                     )
                     result = json.loads(response.choices[0].message.content)
                 except Exception as e:
-                    print(f"   ⚠️ [AI Worker] LLM Error: {e}")
+                    print(f"   [AI Worker] LLM Error: {e}")
                     result = {"root_cause": "LLM Analysis Failed", "severity": "Low", "recommended_actions": ["Manual review required"]}
                 
                 # 3. Save Analysis
@@ -665,8 +665,8 @@ def auto_analyze_anomalies():
                         "message": f"[{log['source']}] {result.get('root_cause')}",
                         "is_resolved": False
                     }).execute()
-                    print(f"   🚨 [AI Worker] ALERT CREATED: {result.get('severity')}")
-                    # 🔴 REAL-TIME: push alert to all dashboards
+                    print(f"   [AI Worker] ALERT CREATED: {result.get('severity')}")
+                    # REAL-TIME: push alert to all dashboards
                     socketio.emit('new_alert', {
                         "severity": result.get("severity"),
                         "message": f"[{log['source']}] {result.get('root_cause')}",
@@ -679,7 +679,7 @@ def auto_analyze_anomalies():
                         f"<h2>{result.get('severity')} Threat Detected</h2><p><b>Source:</b> {log['source']}</p><p><b>Root Cause:</b> {result.get('root_cause')}</p><p><b>Actions:</b></p><ul>{''.join(f'<li>{a}</li>' for a in result.get('recommended_actions',[]))}</ul>"
                     )
     except Exception as e:
-        print(f"❌ [AI Worker] Global Error: {e}")
+        print(f" [AI Worker] Global Error: {e}")
     
     # Wait 30s before next run to save server resources
     time.sleep(30)
@@ -970,13 +970,13 @@ def chat_with_ai():
         reply = response.choices[0].message.content
         return jsonify({"reply": reply})
     except Exception as e:
-        print(f"❌ Chat Error: {e}")
+        print(f" Chat Error: {e}")
         return jsonify({"reply": "I'm having a slight delay in my neural core (Server busy). Please try again in a moment."}), 200
 
 # --- START BACKGROUND AI WORKER ---
 # This ensures the AI starts even when running on Render/Gunicorn
 def start_ai_worker():
-    print("🧠 [System] Starting AI Anomaly Analyzer...")
+    print("[System] Starting AI Anomaly Analyzer...")
     threading.Thread(target=auto_analyze_anomalies, daemon=True).start()
 
 # We use a simple check to make sure it only starts once per process
@@ -986,4 +986,4 @@ if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("FLASK_DE
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)

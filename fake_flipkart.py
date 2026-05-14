@@ -4,7 +4,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-SENTINEL_URL = "http://localhost:5000/api/ingest"
+SENTINEL_URL = "https://sentinel-ai-dashboard-vl6h.onrender.com/api/ingest"
 API_KEY = "sentinel-secure-key-123"
 HEADERS = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 
@@ -219,9 +219,9 @@ def coupon():
     return jsonify({"message": f"Invalid coupon code '{code}'."}) 
 
 if __name__ == '__main__':
-    print("\n🛒 MINI-FLIPKART STARTING...")
-    print("🔗 Open http://localhost:5001")
-    print("\n🎯 ATTACK DEMOS:")
+    print("\n[SHOP] MINI-FLIPKART STARTING...")
+    print("Link: http://localhost:5001")
+    print("\n[TESTS] ATTACK DEMOS:")
     print("   1. Cart: Enter -5 quantity")
     print("   2. Payment: Fail 3 cards in a row")
     print("   3. Search: Type ' OR 1=1 --")
