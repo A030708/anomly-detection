@@ -864,7 +864,7 @@ def get_alerts():
     return jsonify(res.data)
 
 
-@app.route('/api/mitigate/<int:log_id>', methods=['POST'])
+@app.route('/api/alerts/<int:alert_id>/resolve', methods=['POST'])
 @login_required
 def resolve_alert(alert_id):
     supabase.table("alerts").update({"is_resolved": True}).eq("id", alert_id).execute()
