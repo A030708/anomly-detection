@@ -38,6 +38,7 @@ def send_email(subject, html_body, to_email):
     except Exception as e:
         print(f"Email error: {e}")
 
+
 # --- AUTH UI (Beautiful Login/Register) ---
 AUTH_HTML = '''
 <!DOCTYPE html>
@@ -385,6 +386,7 @@ def auto_analyze():
             ws = supabase.table("workspaces").select("alert_email, name").eq("id", log['workspace_id']).execute().data[0]
             supabase.table("alerts").insert({"workspace_id":log['workspace_id'],"severity":result.get("severity"),"message":f"[{ws['name']}] {result.get('root_cause')}","is_resolved":False}).execute()
             
+            # 1. Send Email
             if ws['alert_email']:
                 send_email(f"🚨 Sentinel Alert: {result.get('severity')}", f"<h3>{result.get('root_cause')}</h3><p>Workspace: {ws['name']}</p>", ws['alert_email'])
     threading.Timer(15.0, auto_analyze).start()

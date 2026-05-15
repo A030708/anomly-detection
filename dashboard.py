@@ -59,16 +59,6 @@ def send_alert_email(subject, html_body):
     except Exception as e:
         print(f"   [Email] Error: {e}")
 
-def send_telegram_msg(message):
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id: return
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"})
-        print(f"   [Telegram] Alert sent successfully")
-    except Exception as e:
-        print(f"   [Telegram] Error: {e}")
 
 # --- LOGIN PAGE HTML ---
 LOGIN_HTML = '''
@@ -226,7 +216,6 @@ DASHBOARD_HTML = '''
                             <option value="system">System</option>
                         </select>
                         <button class="btn btn-green" onclick="generateReport()"><i class="fa-solid fa-file-pdf"></i> Security Report</button>
-                        <button class="btn" onclick="testTelegram()"><i class="fa-solid fa-paper-plane"></i> Test Telegram</button>
                         <button class="btn btn-sm" onclick="clearSearch()" title="Clear"><i class="fa-solid fa-xmark"></i></button>
                     </div>
                     <div id="log-stream" class="terminal"></div>
@@ -397,23 +386,14 @@ DASHBOARD_HTML = '''
 
         function changePage(dir) { const p = currentPage + dir; if(p > 0) { currentPage = p; fetchLogs(); } }
 
-        // Initial load + slow poll for charts only (30s fallback)
-        loadData();
-        setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
-        
-        async function testTelegram() {
-            try {
-                const res = await fetch('/api/test_telegram', {method:'POST'});
-                const data = await res.json();
-                alert(data.message || data.error);
-            } catch(e) { alert("Failed to connect to server"); }
-        }
-
         async function generateReport() {
             window.location.href = '/api/report';
         }
-    </script>
 
+        // Initial load + slow poll for charts only (30s fallback)
+        loadData();
+        setInterval(() => { fetchChartData(); fetchAnalysis(); }, 30000);
+    </script>
     <!-- ULTIMATE AI CHAT WIDGET -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -662,13 +642,6 @@ ANALYTICS_HTML = '''
         }
         container.scrollTop = container.scrollHeight;
     }
-    async function testTelegram() {
-        try {
-            const res = await fetch('/api/test_telegram', {method:'POST'});
-            const data = await res.json();
-            alert(data.message || data.error);
-        } catch(e) { alert("Failed to connect to server"); }
-    }
     function openChat() { toggleChat(); }
     function closeChat() { toggleChat(); }
 </script>
@@ -740,13 +713,6 @@ def auto_analyze_anomalies():
                             "root_cause": result.get("root_cause"),
                             "recommended_actions": result.get("recommended_actions", [])
                         })
-                        # Send Telegram alert
-                        telegram_msg = f"🚨 *SENTINEL ALERT: {result.get('severity')}*\n\n" \
-                                       f"📍 *Source:* {log['source']}\n" \
-                                       f"🔍 *Root Cause:* {result.get('root_cause')}\n\n" \
-                                       f"🛠 *Recommended Actions:*\n" + \
-                                       "\n".join([f"• {a}" for a in result.get('recommended_actions', [])])
-                        send_telegram_msg(telegram_msg)
         except Exception as e:
             print(f" [AI Worker] Global Error: {e}")
         
@@ -897,14 +863,6 @@ def get_alerts():
     res = supabase.table("alerts").select("*").eq("is_resolved", False).order("created_at", desc=True).limit(10).execute()
     return jsonify(res.data)
 
-@app.route('/api/test_telegram', methods=['POST'])
-@login_required
-def test_telegram_route():
-    try:
-        send_telegram_msg("🔔 *Sentinel Connectivity Test*\n\nYour Telegram bot is now successfully linked to the Sentinel AI Dashboard. Real-time alerts will appear here.")
-        return jsonify({"message": "Test message sent! Check your Telegram."}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/mitigate/<int:log_id>', methods=['POST'])
 @login_required
@@ -1046,9 +1004,9 @@ def generate_report():
         pdf.set_font("Arial", 'B', 16)
         
         # Header
-        pdf.cell(200, 10, txt="SENTINEL AI - SECURITY REPORT", ln=True, align='C')
+        pdf.cell(200, 10, "SENTINEL AI - SECURITY REPORT", 1, 1, 'C')
         pdf.set_font("Arial", size=10)
-        pdf.cell(200, 10, txt=f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='C')
+        pdf.cell(200, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1, 'C')
         pdf.ln(10)
         
         # Summary Section
@@ -1056,15 +1014,15 @@ def generate_report():
         anomalies = sum(1 for log in logs_res.data if log['is_anomaly'])
         
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt="EXECUTIVE SUMMARY", ln=True)
+        pdf.cell(200, 10, "EXECUTIVE SUMMARY", 0, 1)
         pdf.set_font("Arial", size=10)
-        pdf.cell(200, 8, txt=f"Total Logs Monitored (Recent): {total_logs}", ln=True)
-        pdf.cell(200, 8, txt=f"Anomalies Detected: {anomalies}", ln=True)
+        pdf.cell(200, 8, f"Total Logs Monitored (Recent): {total_logs}", 0, 1)
+        pdf.cell(200, 8, f"Anomalies Detected: {anomalies}", 0, 1)
         pdf.ln(5)
         
         # Threat Details
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(200, 10, txt="THREAT ANALYSIS DETAILS", ln=True)
+        pdf.cell(200, 10, "THREAT ANALYSIS DETAILS", 0, 1)
         pdf.ln(2)
         
         for log in logs_res.data:
@@ -1073,11 +1031,11 @@ def generate_report():
                 severity = analysis.get('severity', 'Pending')
                 
                 pdf.set_font("Arial", 'B', 10)
-                pdf.cell(200, 8, txt=f"[{severity}] Source: {log['source']}", ln=True)
+                pdf.cell(200, 8, f"[{severity}] Source: {log['source']}", 0, 1)
                 pdf.set_font("Arial", size=9)
-                pdf.multi_cell(0, 5, txt=f"Log: {log['message'][:150]}...")
+                pdf.multi_cell(0, 5, f"Log: {log['message'][:150]}...")
                 pdf.set_font("Arial", 'I', 9)
-                pdf.cell(200, 5, txt=f"Root Cause: {analysis.get('root_cause', 'Analyzing...')}", ln=True)
+                pdf.cell(200, 5, f"Root Cause: {analysis.get('root_cause', 'Analyzing...')}", 0, 1)
                 pdf.ln(3)
 
         # 3. Output
